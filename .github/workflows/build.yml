@@ -30,6 +30,7 @@ jobs:
           path: dist
       - id: deployment
         uses: actions/deploy-pages@v4
+        continue-on-error: true
 
   android-apk:
     name: 构建 Android APK
