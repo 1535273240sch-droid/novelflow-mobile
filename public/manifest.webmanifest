@@ -1,0 +1,26 @@
+{
+  "name": "NovelFlow · 小说写作",
+  "short_name": "NovelFlow",
+  "description": "小说写作工作台：接入任意大模型，项目即文件夹，设定/大纲/正文/状态各自成文件",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f8fafc",
+  "theme_color": "#ffffff",
+  "lang": "zh-CN",
+  "icons": [
+    {
+      "src": "./icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "./icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

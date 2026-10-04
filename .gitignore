@@ -1,0 +1,16 @@
+node_modules/
+dist/
+*.local
+*.log
+
+# Android 构建产物
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+android/app/src/main/assets/public/
+android/capacitor-cordova-android-plugins/
+
+# IDE
+.idea/
+.vscode/

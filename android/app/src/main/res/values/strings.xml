@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">NovelFlow</string>
+    <string name="title_activity_main">NovelFlow</string>
+    <string name="package_name">com.novelflow.mobile</string>
+    <string name="custom_url_scheme">com.novelflow.mobile</string>
+</resources>

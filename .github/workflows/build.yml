@@ -1,0 +1,62 @@
+name: 构建打包（Web 预览 + Android APK）
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  web-preview:
+    name: 构建 Web 预览并发布到 Pages
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+      - id: deployment
+        uses: actions/deploy-pages@v4
+
+  android-apk:
+    name: 构建 Android APK
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - run: npx cap sync android
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - name: Gradle 打包 Debug APK
+        working-directory: android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleDebug --no-daemon --stacktrace
+      - name: 重命名 APK
+        run: |
+          mkdir -p out
+          cp android/app/build/outputs/apk/debug/*.apk out/NovelFlow-debug.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: NovelFlow-Android-APK
+          path: out/NovelFlow-debug.apk
+          if-no-files-found: error
