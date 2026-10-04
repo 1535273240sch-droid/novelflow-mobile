@@ -35,6 +35,14 @@ export function cleanFinalNovelText(rawText: string): string {
     text = text.replace(suffix, '')
   }
 
+  // 剥离大模型特殊系统标记与英文系统碎屑
+  text = text.replace(/<\|[a-zA-Z0-9_|-]+\|>/g, '')
+  text = text.replace(/\[\/?(INST|SYS|OUT|END)\]/gi, '')
+  text = text.replace(/\[(Note|Summary|Scene|Chapter|Draft|Analysis|Output)[^\]]*\]/gi, '')
+  text = text.replace(/^(Note|Chapter|Title|Summary):\s*[^\n]*\n+/gim, '')
+  text = text.replace(/\((Show,\s*Don't\s*Tell|Note)[^)]*\)/gi, '')
+
+
   // 3. 移除 Markdown 标题标记（#、##、###）与粗体（**）
   text = text
     .split('\n')

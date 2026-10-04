@@ -239,9 +239,18 @@ export class NovelWorkflowEngine {
       medium: '中篇佳作（全篇约10000字，规划 4-6 章）',
       chapters: '连载长卷（每章约2000字，规划 5-8 章起首卷）'
     }
+
+    const fw = this.project.framework
+    const fwDesc = fw
+      ? `【故事世界观】${fw.world_setting}\n【核心矛盾】${fw.core_conflict}\n【起承转合】起：${fw.plot_outline?.qi}；承：${fw.plot_outline?.cheng}；转：${fw.plot_outline?.zhuan}；合：${fw.plot_outline?.he}`
+      : '乾坤浩瀚，风云汇聚。'
+
     const promptTpl = BUILTIN_PROMPTS['02_plan.md']
     const prompt = renderPrompt(promptTpl, {
-      framework_json: JSON.stringify(this.project.framework || {}, null, 2),
+      framework_desc: fwDesc,
+      male_lead: cfg.maleLead || '林沉',
+      female_lead: cfg.femaleLead || '苏晚',
+      idea: cfg.idea || '由天工文思自行演化绝妙故事',
       length_desc: lengthMap[cfg.length] || lengthMap.short
     })
 
@@ -259,7 +268,7 @@ export class NovelWorkflowEngine {
         index: 1,
         title: '第一章 惊澜初起',
         target: '主角入局，命运交错',
-        key_events: '宿命相逢，暗线伏笔',
+        key_events: `宿命相逢，围绕主角「${cfg.maleLead || '林沉'}」的暗线伏笔`,
         characters: [cfg.maleLead || '林沉', cfg.femaleLead || '苏晚'],
         hook: '暗夜中一柄带露长剑霍然出鞘'
       },
@@ -267,7 +276,7 @@ export class NovelWorkflowEngine {
         index: 2,
         title: '第二章 迷雾藏机',
         target: '揭开真相一角，危机骤临',
-        key_events: '勘破端倪，身陷重围',
+        key_events: `勘破端倪，主角「${cfg.maleLead || '林沉'}」身陷重围`,
         characters: [cfg.maleLead || '林沉'],
         hook: '原来一切早在局中'
       },
@@ -275,7 +284,7 @@ export class NovelWorkflowEngine {
         index: 3,
         title: '第三章 剑破乾坤',
         target: '终局决战，尘埃落定',
-        key_events: '破釜沉舟，真相大白',
+        key_events: `破釜沉舟，主角「${cfg.maleLead || '林沉'}」真相大白`,
         characters: [cfg.maleLead || '林沉', cfg.femaleLead || '苏晚'],
         hook: '烟波江上，故人回眸'
       }
@@ -306,6 +315,7 @@ export class NovelWorkflowEngine {
     signal: AbortSignal,
     onStream?: (s: string) => void
   ): Promise<void> {
+    const cfg = this.project.config
     const chapterName = chapter.title || `第 ${idx + 1} 章`
     const basePct = 25 + Math.floor((idx / total) * 65)
 
@@ -318,15 +328,18 @@ export class NovelWorkflowEngine {
       const prevSummary =
         idx > 0 && this.project.chapters[idx - 1]?.summary
           ? this.project.chapters[idx - 1].summary!
-          : '开篇第一章，主角正式步入故事舞台。'
+          : `开篇第一章，主角「${cfg.maleLead || '林沉'}」正式步入故事舞台。`
 
       const charStates = Object.entries(this.project.characterState)
         .map(([k, v]) => `${k}：${v}`)
-        .join('； ') || '主角心境凝重，蓄势待发。'
+        .join('； ') || `主角「${cfg.maleLead || '林沉'}」心境沉着，蓄势待发。`
 
       const promptTpl = BUILTIN_PROMPTS['03_draft.md']
       const prompt = renderPrompt(promptTpl, {
-        framework: JSON.stringify(this.project.framework || {}),
+        male_lead: cfg.maleLead || '林沉',
+        female_lead: cfg.femaleLead || '苏晚',
+        idea: cfg.idea || '紧扣设定展开精彩故事',
+        world_setting: this.project.framework?.world_setting || '乾坤广大，风云暗涌',
         previous_summary: prevSummary,
         character_states: charStates,
         chapter_plan: chapter.plan,
@@ -343,7 +356,6 @@ export class NovelWorkflowEngine {
       }, `正文初稿-${chapterName}`)
 
       chapter.draft = draft
-      // 生成本章 200 字摘要并更新人物状态
       chapter.summary = draft.slice(0, 180) + '...'
       if (this.project.config.maleLead) {
         this.project.characterState[this.project.config.maleLead] = `经历${chapterName}事件后，心志愈坚`
@@ -356,7 +368,13 @@ export class NovelWorkflowEngine {
     // ④ 错别字检查
     if (this.stageConfigs.typo.enabled && !chapter.typoFixed) {
       this.notifyProgress('typo', '校勘厘正', basePct + 2, `正在校对「${chapterName}」错讹字句...`, idx + 1, total)
-      workingText = await this.processInChunks(workingText, '04_typo.md', {}, signal, this.stageConfigs.typo.modelId)
+      workingText = await this.processInChunks(
+        workingText,
+        '04_typo.md',
+        { male_lead: cfg.maleLead || '林沉', female_lead: cfg.femaleLead || '苏晚' },
+        signal,
+        this.stageConfigs.typo.modelId
+      )
       chapter.typoFixed = workingText
       this.notifyUpdate()
     } else if (chapter.typoFixed) {
@@ -370,7 +388,11 @@ export class NovelWorkflowEngine {
       workingText = await this.processInChunks(
         workingText,
         '05_deai.md',
-        { banned_words: bannedPrompt },
+        {
+          banned_words: bannedPrompt,
+          male_lead: cfg.maleLead || '林沉',
+          female_lead: cfg.femaleLead || '苏晚'
+        },
         signal,
         this.stageConfigs.deai.modelId
       )
@@ -386,7 +408,11 @@ export class NovelWorkflowEngine {
       workingText = await this.processInChunks(
         workingText,
         '06_polish.md',
-        { style: this.project.config.style.join('、') },
+        {
+          style: this.project.config.style.join('、'),
+          male_lead: cfg.maleLead || '林沉',
+          female_lead: cfg.femaleLead || '苏晚'
+        },
         signal,
         this.stageConfigs.polish.modelId
       )
@@ -475,6 +501,8 @@ export class NovelWorkflowEngine {
     const prompt = renderPrompt(promptTpl, {
       genre: this.project.config.genre,
       style: this.project.config.style.join('、'),
+      male_lead: this.project.config.maleLead || '林沉',
+      female_lead: this.project.config.femaleLead || '苏晚',
       summary
     })
 

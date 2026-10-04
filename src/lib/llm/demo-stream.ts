@@ -1,45 +1,9 @@
 /**
  * 内置古墨天工模拟模型（local-demo）：
  * - 不出网、免 API Key，可离线完整演练 7 大工作流阶段与标题生成
- * - 针对故事框架与章节规划智能输出合规 JSON
- * - 针对正文流式输出极具文采的古墨小说文字
+ * - 动态解析用户填写的男主名、女主名、题材与核心想法，彻底杜绝固定模板与名字跑偏
+ * - 纯正典雅全中文输出，严禁任何英文符号或杂质
  */
-
-const NOVEL_CHAPTERS: string[] = [
-  `暮色苍茫，徽墨浓淡。青石长街两侧的老茶肆挑着一盏残灯，灯纸早被去岁的春雨洇得发黄，在湿冷的暮风中瑟瑟摇晃。
-
-林沉低着头，手指抚过腰间那柄未开刃的乌木戒尺，指尖触及冰凉的篆刻纹理，心头隐隐一动。三年前那桩轰动金陵的悬案，便是从这间名为“听雨轩”的茶肆起始。彼时茶香袅袅，而今却只剩尘灰与落叶。
-
-“客官，打尖还是住店？”掌柜的声音沙哑苍老，擦拭桌面的旧抹布泛着酸涩气味。
-
-林沉没有抬头，只是从袖中取出一枚温润的羊脂白玉飞燕坠，轻轻置于桌面。那玉坠雕工极巧，羽翼微敛，宛如随时将破空而去。
-
-掌柜擦拭桌子的手骤然僵住，浑浊的双眼里掠过一丝无法掩饰的骇然：“这块飞燕……你从何处得来？”
-
-门外檐角，忽有一阵极轻的脚步声伴着环佩相叩之音戛然而止。苏晚一袭黛青披风悄然立在门槛处，伞尖滑落的水珠在青石板上砸出一圈碎玉。她目光幽深地望着林沉，唇角微抿，却未发一言。命运的机杼，在这一刻悄然咬合。`,
-
-  `夜雨初歇，云破月来。
-
-苏晚推开临街的雕花木窗，潮湿的凉风夹杂着夜市残存的脂粉与药香扑面而来。她将桌上的古卷缓缓展开，那是一张以古法熟宣绘制的密图，图中山川城郭皆用极细的金线暗纹勾勒，历经甲子岁月，依旧熠熠生辉。
-
-“当年苏家满门蒙冤，所有人都以为那幅《江山舆图》已葬身火海。”林沉倚在门框旁，目光沉静地注视着窗前纤瘦的背影，“却不知你一直将它藏在身边。”
-
-苏晚回眸，清冷的月色洒在她如玉的面庞上：“若无此图，天下谁能知晓边关十三州兵饷的真正去向？林沉，你今夜入局，便再无回旋余地。”
-
-林沉微微一笑，缓步走至案前，提笔蘸取朱砂，在图卷东南一角重重按下一记鲜红的印泥：“既然回不了头，那便踏出一条生路来。”`,
-
-  `金陵城外的栖霞山巅，古枫如血。
-
-朔风呼啸，猎猎吹动战旗。对决的时刻终于在破晓前降临。昔日暗藏幕后的权臣身披重甲，身后三千铁骑森然列阵，长矛如林，杀意如潮。
-
-“林沉，你不过一介书生，何苦螳臂当车？”阴鸷的笑声在山谷回荡。
-
-林沉立于危崖之上，长衫随风翻飞，目光明澈如渊：“天地有正气，杂然赋流形。下则为河岳，上则为日星。今日借这漫天朝霞，涤尽人间污浊！”
-
-话音未落，林沉手中戒尺凌空一振，藏于尺中的三尺秋水霍然出鞘，剑鸣如龙吟九霄！与此同时，苏晚率领的勤王精锐自山谷两侧合围而至，号角声震彻云霄。
-
-曙光冲破层云，万丈金芒洒满山河大川。旧案昭雪，天下初定，而两人的身影，已然隐入江南如画的烟雨之中。`
-]
 
 function sleep(ms: number, signal: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -59,72 +23,128 @@ function sleep(ms: number, signal: AbortSignal): Promise<void> {
   })
 }
 
+interface PromptContext {
+  male: string
+  female: string
+  genre: string
+  idea: string
+  chapterIndex: number
+}
+
+function extractPromptContext(prompt: string): PromptContext {
+  // 提取男主
+  let male = '林沉'
+  const m1 = prompt.match(/男主角唯一姓名：【([^】]+)】/)
+  const m2 = prompt.match(/【法定男主（绝对不可更改）】\s*([^\n]+)/)
+  const m3 = prompt.match(/【法定男主】\s*([^\n]+)/)
+  const m4 = prompt.match(/男主[：: ]+([^\s；;\n，,]+)/)
+  if (m1) male = m1[1].trim()
+  else if (m2) male = m2[1].trim()
+  else if (m3) male = m3[1].trim()
+  else if (m4) male = m4[1].trim()
+
+  // 提取女主
+  let female = '苏晚'
+  const f1 = prompt.match(/女主角唯一姓名：【([^】]+)】/)
+  const f2 = prompt.match(/【法定女主（绝对不可更改）】\s*([^\n]+)/)
+  const f3 = prompt.match(/【法定女主】\s*([^\n]+)/)
+  const f4 = prompt.match(/女主[：: ]+([^\s；;\n，,]+)/)
+  if (f1) female = f1[1].trim()
+  else if (f2) female = f2[1].trim()
+  else if (f3) female = f3[1].trim()
+  else if (f4) female = f4[1].trim()
+
+  // 提取题材
+  let genre = '都市'
+  const gMatch = prompt.match(/【题材类型】\s*([^\n]+)/)
+  if (gMatch) genre = gMatch[1].trim()
+
+  // 提取核心想法
+  let idea = ''
+  const iMatch = prompt.match(/【用户钦定剧情核心要求[^】]*】\s*([\s\S]*?)(?=\n【|$)/)
+  if (iMatch && iMatch[1].trim()) {
+    idea = iMatch[1].trim().replace(/^无[（(]AI[^\n]*$/, '')
+  }
+
+  // 提取章节编号
+  let chapterIndex = 1
+  const cMatch = prompt.match(/第\s*(\d+)\s*章/)
+  if (cMatch) chapterIndex = parseInt(cMatch[1], 10) || 1
+
+  return { male, female, genre, idea, chapterIndex }
+}
+
 function composeSimulatedResponse(prompt: string): string {
-  // 1. 判断是否是框架阶段
+  const ctx = extractPromptContext(prompt)
+  const ideaDesc = ctx.idea ? `【钦定主线】${ctx.idea}` : '风起云涌，宿命交错'
+
+  // 1. 故事框架阶段
   if (prompt.includes('故事暂定名') || prompt.includes('world_setting') || prompt.includes('01_framework')) {
     return JSON.stringify(
       {
-        title_suggestion: '墨染梨花雨',
-        world_setting: '大乾承平末年，表面繁花似锦，暗里朝野倾轧、藩镇割据，江湖门阀与天子近卫暗卫相互牵制。',
+        title_suggestion: `${ctx.genre}卷·${ctx.male}传奇`,
+        world_setting: `故事发生在风起云涌的${ctx.genre}世界中。表面繁华平静，暗流早已席卷各方势力。${ideaDesc}，成为打破这片天地宿命棋局的关键枢纽。`,
         male_lead: {
-          name: '林沉',
-          identity: '前朝大理寺少卿遗孤，如今隐迹江南的墨坊掌案',
-          personality: '沉稳孤傲，内敛深情，文心剑胆',
-          goal: '彻查当年江南织造血案真相，为枉死先辈昭雪',
-          flaw: '背负仇恨过重，难以轻信他人'
+          name: ctx.male,
+          identity: `${ctx.genre}世界中暗藏不凡身世的执棋者`,
+          personality: '沉稳敏锐，行事果决，重情重义',
+          goal: ctx.idea ? `履行核心誓约：${ctx.idea.slice(0, 30)}` : '拨开迷雾，勘破命途终局',
+          flaw: '背负太重，过刚易折'
         },
         female_lead: {
-          name: '苏晚',
-          identity: '富甲一方的江南苏氏商行掌印千金',
-          personality: '聪颖机敏，外柔内刚，擅识人心',
-          goal: '守护家族基业，解开母亲遗留的铜锁之谜',
-          flaw: '情深不寿，面对至亲之人难狠心肠'
+          name: ctx.female,
+          identity: '深涉各方旋涡的世家执印贵女',
+          personality: '灵慧如玉，外柔内刚，擅辨人心',
+          goal: '破除家族暗枷，与所信之人同舟共济',
+          flaw: '情深不寿'
         },
         supporting_characters: [
-          { name: '赵无疾', role: '锦衣夜行校尉', trait: '行事狠辣却恪守底线' },
-          { name: '枯木大师', role: '栖霞古寺住持', trait: '洞悉乾坤因果' }
+          { name: '墨老', role: '幕后引渡人', trait: '洞悉乾坤机变' },
+          { name: '冷锋', role: '宿命对手', trait: '行事狠辣有底线' }
         ],
-        core_conflict: '追查真相必须掀开皇城禁秘，而真相的背后竟关乎天下苍生与至亲骨肉的生死抉择。',
+        core_conflict: ctx.idea
+          ? `围绕核心事件「${ctx.idea.slice(0, 40)}」展开的生死较量与信念抉择。`
+          : '暗流倾轧与坚守本心之间的不可调和之争。',
         plot_outline: {
-          qi: '金陵雨夜，一块飞燕玉坠揭开尘封旧案，林沉与苏晚因缘际会卷入漩涡。',
-          cheng: '二人携手探查苏家密图，屡遭各方势力伏击，感情在生死同行中暗生情愫。',
-          zhuan: '真相水落石出，幕后黑手竟是曾经最信赖的旧友，陷阱遍布绝境。',
-          he: '栖霞山巅绝处逢生，破开迷局平定江南动荡，二人泛舟归隐烟雨间。'
+          qi: `开篇立局：${ctx.male}于长街初显峥嵘，暗流涌动，核心危机轰然引爆。`,
+          cheng: `承前启后：${ctx.male}与${ctx.female}携手破局，勘破暗网蛛丝马迹。`,
+          zhuan: `惊天逆转：绝境翻盘，幕后真凶浮出水面，付出惨痛代价。`,
+          he: `终局定鼎：决战巅峰，扫尽阴霾，两道身影并肩笑对天地。`
         },
-        ending_direction: '尘埃落定，天下海晏河清，携手泛舟五湖四海。'
+        ending_direction: '荡气回肠，余味悠长，海晏河清'
       },
       null,
       2
     )
   }
 
-  // 2. 判断是否是章节计划阶段
+  // 2. 章节计划阶段
   if (prompt.includes('章节推进规划') || prompt.includes('02_plan') || prompt.includes('hook')) {
     return JSON.stringify(
       [
         {
           index: 1,
-          title: '第一章 雨夜燕坠',
-          target: '引出前尘旧案，林沉与苏晚首次产生交集',
-          key_events: '听雨轩掌柜辨认玉坠，苏晚暗中现身试探',
-          characters: ['林沉', '苏晚'],
-          hook: '青石板巷深处传来的密令敲击声'
+          title: '第一章 惊澜起微末',
+          target: `${ctx.male}正式步入风云局，暗线危机初现`,
+          key_events: `${ctx.male}现身长街茶肆；与${ctx.female}初次交锋试探；${ideaDesc.slice(0, 30)}`,
+          characters: [ctx.male, ctx.female],
+          hook: '青石板巷深处，一道冰冷的杀机悄然锁死'
         },
         {
           index: 2,
-          title: '第二章 舆图暗机',
-          target: '破译熟宣图卷，揭露边关军饷亏空惊天秘密',
-          key_events: '夜读《江山舆图》，刺客破窗袭杀，林沉戒尺出剑',
-          characters: ['林沉', '苏晚', '赵无疾'],
-          hook: '刺客腰间竟然悬着大理寺特有的腰牌'
+          title: '第二章 迷雾藏玄机',
+          target: `揭开暗网一角，${ctx.male}身陷重围`,
+          key_events: `勘破密图端倪；强敌伏击，${ctx.male}展露雷霆手段；二人结成同盟`,
+          characters: [ctx.male, ctx.female, '墨老'],
+          hook: '对手腰间竟佩戴着至亲的旧信物'
         },
         {
           index: 3,
-          title: '第三章 枫林破晓',
-          target: '栖霞山决战，真相大白，匡扶正义后拂衣而去',
-          key_events: '山巅对峙权臣，秋水出鞘破万军，大局初定',
-          characters: ['林沉', '苏晚'],
-          hook: '晨光破晓处，一叶扁舟顺流而下'
+          title: '第三章 锋芒定乾坤',
+          target: `终局决战，打破宿命，真相昭然若揭`,
+          key_events: `巅峰对峙；${ctx.male}破釜沉舟打破枷锁；长风万里尘埃落定`,
+          characters: [ctx.male, ctx.female],
+          hook: '晨光破晓处，携手笑看万里山河'
         }
       ],
       null,
@@ -132,41 +152,86 @@ function composeSimulatedResponse(prompt: string): string {
     )
   }
 
-  // 3. 判断是否是标题阶段
+  // 3. 候选书名阶段
   if (prompt.includes('候选书名') || prompt.includes('07_title') || prompt.includes('pitch')) {
     return JSON.stringify(
       [
-        { title: '一砚梨花雨', type: '诗意文艺型', pitch: '墨染梨花，情深缘浅' },
-        { title: '大乾镇妖录', type: '直白破题型', pitch: '斩妖除魔，步步为营' },
-        { title: '长风踏歌行', type: '诗意文艺型', pitch: '纵马江湖，快哉平生' },
-        { title: '问剑青云巅', type: '爆点爽意型', pitch: '一剑破万法，快意恩仇' },
-        { title: '雾中回眸客', type: '悬念引人型', pitch: '层层剥茧，反转惊心' },
-        { title: '天机不可泄', type: '悬念引人型', pitch: '算尽天机，唯漏一心' },
-        { title: '绝品炼气士', type: '爆点爽意型', pitch: '扮猪吃虎，横推八荒' },
-        { title: '沉晚辞归路', type: '直白破题型', pitch: '双星辉映，宿命同舟' }
+        { title: `${ctx.male}临天下`, type: '直白破题型', pitch: `${ctx.male}破开苍茫局` },
+        { title: `一砚梨花雨`, type: '诗意文艺型', pitch: '墨染梨花，情深缘浅' },
+        { title: `${ctx.genre}破局录`, type: '直白破题型', pitch: '步步为营，横扫迷障' },
+        { title: `雾中回眸客`, type: '悬念引人型', pitch: '层层剥茧，反转惊心' },
+        { title: `长风踏歌行`, type: '诗意文艺型', pitch: '纵马平生，快意恩仇' },
+        { title: `天机不可泄`, type: '悬念引人型', pitch: '算尽天机，唯漏一心' },
+        { title: `绝世傲骨锋`, type: '爆点爽意型', pitch: `${ctx.male}逆风翻盘，横扫八荒` },
+        { title: `${ctx.male}晚归路`, type: '诗意文艺型', pitch: '双星辉映，宿命同舟' }
       ],
       null,
       2
     )
   }
 
-  // 4. 判断是否是去AI味或校对/润色
+  // 4. 去 AI 味或校对/润色阶段
   if (prompt.includes('去 AI 味') || prompt.includes('校对') || prompt.includes('润色')) {
     const chunkMatch = prompt.match(/【待[^\n]+】\s*([\s\S]*)$/)
     if (chunkMatch && chunkMatch[1]) {
-      // 对待处理文本进行洗练
       let text = chunkMatch[1].trim()
       text = text.replace(/不禁/g, '不由')
       text = text.replace(/嘴角勾起一抹弧度/g, '唇角微动')
       text = text.replace(/眼中闪过一丝/g, '目光微敛')
       text = text.replace(/深吸一口气/g, '平复心绪')
+      text = text.replace(/空气仿佛凝固了/g, '四下寂然无声')
+      text = text.replace(/Show,\s*Don't\s*Tell/gi, '')
+      text = text.replace(/[a-zA-Z]/g, '') // 纯正中文保证
       return text
     }
   }
 
-  // 默认正文生成：按索引选择丰富章节
-  const idx = Math.abs(prompt.length % NOVEL_CHAPTERS.length)
-  return NOVEL_CHAPTERS[idx]
+  // 5. 正文初稿动态生成（以用户男主、女主、核心剧情为绝对主轴！）
+  const ideaNarrative = ctx.idea
+    ? `那桩关于「${ctx.idea}」的风暴，已在暗中酝酿了整整三载。`
+    : '青石长街两侧的老茶肆挑着一盏残灯，在湿冷的风中瑟瑟摇晃。'
+
+  const chapterText1 = `暮色苍茫，徽墨浓淡。青石长街两侧的老茶肆挑着残灯，在湿冷的夜风中微微摇晃。
+
+${ctx.male}低着头，手指缓缓收拢，指尖触及冰凉的衣袖边缘，心头激荡起层层波澜。${ideaNarrative}今天夜里，所有的伏笔都将在此刻破土而出。
+
+“客官，打尖还是住店？”掌柜的声音沙哑苍老，目光有意无意地在${ctx.male}身上逡巡。
+
+${ctx.male}没有抬头，只是从袖中取出一枚温润的玉佩，轻轻置于桌面。那玉佩雕工极细，在微弱的油灯下泛着微光。
+
+掌柜擦拭桌面的手骤然僵住，浑浊的双眼里掠过一丝难以言喻的震动：“这枚信物……竟在你的手里？”
+
+门外檐角，忽有一阵极轻的脚步声伴着微风悄然停歇。一袭黛青披风悄然立在门槛处，来人正是${ctx.female}。她手中的伞尖滑落雨滴，在石板上砸出一圈碎玉般的声响。她静静地凝视着${ctx.male}，唇角微微抿起，目光中带着审视与探寻。
+
+属于${ctx.male}的传奇长卷，便在这一声清脆的滴水声中，霍然拉开大幕。`
+
+  const chapterText2 = `更深露重，风雨初歇。
+
+${ctx.female}推开临街的雕花长窗，潮湿的凉风夹杂着夜市残存的市井气息扑面而来。案几上平铺着那张泛黄的古旧图谱，那是全城各大势力明争暗夺的核心机密。
+
+“所有人都以为这桩秘辛已被彻底焚毁。”${ctx.male}缓步走到案前，目光沉凝地注视着窗前那道纤细的身影，“却不知你早已将它暗中保全。”
+
+${ctx.female}回过身，清冷的月光洒在她如玉的面庞上：“若无此物，天下间谁能知晓那场变故背后的真正黑手？${ctx.male}，你今夜踏入此局，便再无任何回头之路。”
+
+${ctx.male}闻言淡然一笑，提笔蘸取研好的浓墨，在图谱的一角重重落下印记：“既然入了局，我${ctx.male}便从未打算回头。”
+
+话音未落，楼外长巷骤然响起密集的破空锐响，数十道黑影如夜枭般掠上屋脊，杀意森森，已将整座楼阁围得水泄不通。`
+
+  const chapterText3 = `天光破晓，晨曦微露。
+
+决战的时刻终于在黎明前降临。昔日暗中操纵一切的对手身披沉重玄甲，森然立于高台之上，无数长矛森列如林，气氛压抑到了极点。
+
+“你不过孤身一人，何苦逆天而行？”冷厉的嗤笑声在空旷处回荡。
+
+${ctx.male}独立于高阶之上，衣袂随晨风猎猎作响，眼神却如寒潭深井般清澈坚毅：“天地有公道，岁月自留痕。今日我${ctx.male}站在这里，就是要将你们遮蔽的一切彻底掀开！”
+
+电光石火之间，${ctx.male}身形若游龙疾走，掌风凌厉若惊雷裂空，以一己之力直破重重围锁！与此同时，${ctx.female}率领的增援人马自两侧长街合围而至，如狂潮决堤，瞬间涤荡全场。
+
+晨光破开层层重云，万道金芒洒满巍峨城郭。宿怨得报，迷局勘破，${ctx.male}与${ctx.female}并肩立于高处，浩浩长风吹起衣角，天地之间唯余一片朗朗清辉。`
+
+  if (ctx.chapterIndex === 2) return chapterText2
+  if (ctx.chapterIndex >= 3) return chapterText3
+  return chapterText1
 }
 
 export async function demoStreamChat(
