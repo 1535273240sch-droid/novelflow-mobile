@@ -7,16 +7,9 @@ on:
   workflow_dispatch:
 
 jobs:
-  web-preview:
-    name: 构建 Web 预览并发布到 Pages
+  web-build:
+    name: 构建 Web 预览产物
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      pages: write
-      id-token: write
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -25,12 +18,10 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/upload-artifact@v4
         with:
+          name: NovelFlow-Web-Dist
           path: dist
-      - id: deployment
-        uses: actions/deploy-pages@v4
-        continue-on-error: true
 
   android-apk:
     name: 构建 Android APK
