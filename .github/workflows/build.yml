@@ -3,6 +3,7 @@ name: 构建打包（Web 预览 + Android APK）
 on:
   push:
     branches: [main]
+    tags: ['v*']
   workflow_dispatch:
 
 jobs:
@@ -60,3 +61,19 @@ jobs:
           name: NovelFlow-Android-APK
           path: out/NovelFlow-debug.apk
           if-no-files-found: error
+
+  release-apk:
+    name: 发布 Release（打 v* 标签时自动）
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: android-apk
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: NovelFlow-Android-APK
+          path: out
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: out/NovelFlow-debug.apk
