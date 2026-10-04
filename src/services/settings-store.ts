@@ -3,20 +3,11 @@ import {
   DEMO_PRESET_ID,
   type AppConfig,
   type AppSettings,
-  type PresetCreds,
   type PresetInput,
   type PresetView,
-  type Protocol,
-  type RoleMapping
+  type Protocol
 } from '../shared/types'
 import { maskKey } from '../lib/llm/redact'
-
-/**
- * 应用设置存储（localStorage: novelflow:settings）：
- * 与桌面版 settings-store.ts 对齐——渲染层永远只能拿到 apiKeyHint；
- * 差异：桌面版密钥经 Electron safeStorage 加密落盘，手机版存于本机设备存储，
- * 未勾选「记住」的密钥仅保存在内存（本次会话有效）。
- */
 
 const LS_SETTINGS = 'novelflow:settings'
 
@@ -25,7 +16,6 @@ export interface StoredPreset {
   name: string
   protocol: Protocol
   baseUrl: string
-  /** 勾选「记住」时保存在本机设备存储；否则为 null */
   apiKeyStored: string | null
   apiKeyHint: string
   model: string
@@ -38,12 +28,25 @@ export interface StoredPreset {
 interface SettingsFile {
   version: number
   presets: StoredPreset[]
-  roles: RoleMapping
+  stageModels: Record<string, string>
   config: AppConfig
 }
 
 function defaultSettings(): SettingsFile {
-  return { version: 1, presets: [], roles: {}, config: { ...DEFAULT_APP_CONFIG } }
+  return {
+    version: 1,
+    presets: [],
+    stageModels: {
+      framework: DEMO_PRESET_ID,
+      plan: DEMO_PRESET_ID,
+      draft: DEMO_PRESET_ID,
+      typo: DEMO_PRESET_ID,
+      deai: DEMO_PRESET_ID,
+      polish: DEMO_PRESET_ID,
+      title: DEMO_PRESET_ID
+    },
+    config: { ...DEFAULT_APP_CONFIG }
+  }
 }
 
 function load(): SettingsFile {
@@ -53,7 +56,7 @@ function load(): SettingsFile {
     const data = JSON.parse(raw) as SettingsFile
     if (!Array.isArray(data.presets)) data.presets = []
     data.config = { ...DEFAULT_APP_CONFIG, ...data.config }
-    data.roles = data.roles ?? {}
+    data.stageModels = { ...defaultSettings().stageModels, ...(data.stageModels || {}) }
     return data
   } catch {
     return defaultSettings()
@@ -64,7 +67,6 @@ function persist(data: SettingsFile): void {
   localStorage.setItem(LS_SETTINGS, JSON.stringify(data))
 }
 
-/** 未记住的密钥（仅内存，刷新页面失效） */
 const sessionKeys = new Map<string, string>()
 
 function newPresetId(): string {
@@ -74,7 +76,7 @@ function newPresetId(): string {
 function demoPresetView(): PresetView {
   return {
     id: DEMO_PRESET_ID,
-    name: '演示模型（内置离线）',
+    name: '古墨天工模拟（离线演示免Key）',
     protocol: 'local-demo',
     baseUrl: '',
     apiKeyHint: '',
@@ -108,7 +110,7 @@ export function getSettings(): AppSettings {
   return {
     version: d.version,
     presets: [demoPresetView(), ...d.presets.map((p) => toView(p, sessionKeys.has(p.id)))],
-    roles: { ...d.roles },
+    stageModels: { ...d.stageModels },
     config: { ...d.config }
   }
 }
@@ -151,7 +153,6 @@ export function upsertPreset(input: PresetInput): PresetView {
       stored.apiKeyHint = maskKey(input.apiKey)
       sessionKeys.delete(stored.id)
     } else {
-      // 未勾选记住：密钥只留在内存，本次会话有效，绝不写入本机存储
       stored.apiKeyStored = null
       stored.apiKeyHint = maskKey(input.apiKey)
       sessionKeys.set(stored.id, input.apiKey)
@@ -165,15 +166,17 @@ export function deletePreset(id: string): void {
   const d = load()
   d.presets = d.presets.filter((p) => p.id !== id)
   sessionKeys.delete(id)
-  for (const role of Object.keys(d.roles) as Array<keyof RoleMapping>) {
-    if (d.roles[role] === id) delete d.roles[role]
+  for (const st of Object.keys(d.stageModels)) {
+    if (d.stageModels[st] === id) {
+      d.stageModels[st] = DEMO_PRESET_ID
+    }
   }
   persist(d)
 }
 
-export function setRoles(roles: RoleMapping): void {
+export function setStageModels(stageModels: Record<string, string>): void {
   const d = load()
-  d.roles = { ...roles }
+  d.stageModels = { ...stageModels }
   persist(d)
 }
 
@@ -185,8 +188,7 @@ export function setAppConfig(patch: Partial<AppConfig>): AppConfig {
   return { ...d.config }
 }
 
-/** 取某预设的调用凭据（明文 key 只在本进程内存中出现） */
-export function getCredentials(presetId: string): PresetCreds | null {
+export function getCredentials(presetId: string): any {
   if (presetId === DEMO_PRESET_ID) {
     return {
       protocol: 'local-demo',
@@ -213,6 +215,5 @@ export function getCredentials(presetId: string): PresetCreds | null {
   }
 }
 
-/** 手机版安全说明文案（设置页展示） */
 export const SECURITY_NOTE =
-  '手机版密钥保存在本机设备存储中，绝不随小说内容上传；勾选「记住」的 Key 会持久保存在本机（与桌面版 safeStorage 加密不同，App 卸载即清除）。'
+  '密钥加密保存在本地设备存储中，调用时直接经端到端通信（不经过任何第三方中转），保证纯净安全。'

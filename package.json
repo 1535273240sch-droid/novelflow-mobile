@@ -1,9 +1,9 @@
 {
   "name": "novelflow-mobile",
   "private": true,
-  "version": "1.0.0",
+  "version": "1.1.0",
   "type": "module",
-  "description": "NovelFlow 手机原生版：Capacitor 封装的 Android App，与桌面版同主题同工作流",
+  "description": "NovelFlow 小说生成工作流软件 · 手机端（高品质古墨羊皮卷诗意文艺版）",
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",

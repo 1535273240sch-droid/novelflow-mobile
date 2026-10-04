@@ -1,10 +1,10 @@
 import { create } from 'zustand'
-import type { AppConfig, AppSettings, PresetInput, RoleMapping } from '../shared/types'
+import type { AppConfig, AppSettings, PresetInput } from '../shared/types'
 import {
   deletePreset as svcDeletePreset,
   getSettings as svcGetSettings,
   setAppConfig as svcSetAppConfig,
-  setRoles as svcSetRoles,
+  setStageModels as svcSetStageModels,
   upsertPreset as svcUpsertPreset
 } from '../services/settings-store'
 import { llm } from '../lib/llm/service'
@@ -12,15 +12,12 @@ import { llm } from '../lib/llm/service'
 interface SettingsState {
   settings: AppSettings | null
   load: () => void
-  savePreset: (input: PresetInput) => PresetView2
+  savePreset: (input: PresetInput) => any
   deletePreset: (id: string) => void
-  setRoles: (roles: RoleMapping) => void
+  setStageModels: (models: Record<string, string>) => void
   setAppConfig: (patch: Partial<AppConfig>) => void
 }
 
-type PresetView2 = ReturnType<typeof svcGetSettings>['presets'][number]
-
-/** 保存性能配置时同步 LLM 调用层（并发上限 / 节流） */
 function applyLlmConfig(config: AppConfig): void {
   llm.updateConfig({ concurrencyLimit: config.concurrencyLimit, throttleMs: config.streamThrottleMs })
 }
@@ -41,8 +38,8 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     svcDeletePreset(id)
     get().load()
   },
-  setRoles: (roles) => {
-    svcSetRoles(roles)
+  setStageModels: (models) => {
+    svcSetStageModels(models)
     get().load()
   },
   setAppConfig: (patch) => {

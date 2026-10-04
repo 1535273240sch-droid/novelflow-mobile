@@ -1,331 +1,475 @@
-import { useEffect, useState } from 'react'
-import {
-  DEMO_PRESET_ID,
-  MODEL_ROLES,
-  MODEL_ROLE_LABELS,
-  PROTOCOL_LABELS,
-  type AppConfig,
-  type PresetInput,
-  type Protocol,
-  type RoleMapping,
-  type TestConnectionResult
-} from '../shared/types'
+import React, { useState } from 'react'
 import { useSettingsStore } from '../stores/settings'
 import { useUiStore } from '../stores/ui'
+import { complete } from '../lib/llm/adapters'
 import { getCredentials, SECURITY_NOTE } from '../services/settings-store'
-import { llm } from '../lib/llm/service'
-import { wipeAllData } from '../services/vfs'
-import { Sheet } from './common/Sheet'
+import type { PresetInput, PresetView, Protocol } from '../shared/types'
+import { DEFAULT_DEAI_WORDS } from '../../packages/core/src/deai-words'
 
-function emptyForm(): PresetInput {
-  return {
-    name: '',
-    protocol: 'openai-compatible',
-    baseUrl: '',
-    apiKey: '',
-    rememberKey: true,
-    model: '',
-    contextLength: 128000,
-    temperature: 0.7,
-    maxOutputTokens: 4096
-  }
+const STAGE_LABELS: Record<string, string> = {
+  framework: '立骨安魂（故事框架）',
+  plan: '排篇布局（章节计划）',
+  draft: '秉烛挥毫（正文初稿）',
+  typo: '校勘厘正（错别字检查）',
+  deai: '洗练铅华（去AI味）',
+  polish: '锦上添花（润色精修）',
+  title: '题签金石（候选书名）'
 }
 
-/** 设置页：模型预设增删改 + 测试连接 + 模型角色映射 + 性能配置（与桌面版同功能，手机版单列布局） */
-export function SettingsPage({ onBack }: { onBack: () => void }) {
+export const SettingsPage: React.FC = () => {
   const settings = useSettingsStore((s) => s.settings)
   const savePreset = useSettingsStore((s) => s.savePreset)
   const deletePreset = useSettingsStore((s) => s.deletePreset)
-  const setRoles = useSettingsStore((s) => s.setRoles)
+  const setStageModels = useSettingsStore((s) => s.setStageModels)
   const setAppConfig = useSettingsStore((s) => s.setAppConfig)
   const showToast = useUiStore((s) => s.showToast)
 
-  const [form, setForm] = useState<PresetInput | null>(null)
-  const [testing, setTesting] = useState<string>('')
-  const [results, setResults] = useState<Record<string, TestConnectionResult>>({})
-  const [rolesDraft, setRolesDraft] = useState<RoleMapping>({})
-  const [configDraft, setConfigDraft] = useState<AppConfig | null>(null)
+  // 预设编辑表单弹窗
+  const [editingPreset, setEditingPreset] = useState<PresetInput | null>(null)
+  const [testingId, setTestingId] = useState<string | null>(null)
+  const [testResult, setTestResult] = useState<string | null>(null)
 
-  // 设置数据加载后同步草稿
-  useEffect(() => {
-    if (settings) {
-      setRolesDraft({ ...settings.roles })
-      setConfigDraft({ ...settings.config })
+  // 新增 AI 味词汇输入框
+  const [newBannedWord, setNewBannedWord] = useState('')
+
+  if (!settings) return null
+
+  const presets: PresetView[] = settings.presets || []
+  const stageModels = settings.stageModels || {}
+  const config = settings.config
+  const bannedWords = config.bannedWords || DEFAULT_DEAI_WORDS
+
+  const handleTestConnection = async (presetId: string) => {
+    setTestingId(presetId)
+    setTestResult('正在建立文曲连通测试...')
+    try {
+      const creds = getCredentials(presetId)
+      if (!creds || creds.protocol === 'local-demo') {
+        await new Promise((r) => setTimeout(r, 400))
+        setTestResult('✅ 本地模拟模型连通畅通，随时可离线推演')
+        showToast('测试成功')
+        return
+      }
+      const t0 = performance.now()
+      const resp = await complete(
+        creds,
+        [{ role: 'user', content: '请输出两字：通畅' }],
+        { connectTimeoutMs: 15000 }
+      )
+      const latency = Math.round(performance.now() - t0)
+      setTestResult(`✅ 连通成功！延迟 ${latency}ms，返回：「${resp.trim().slice(0, 20)}」`)
+      showToast('模型连接成功')
+    } catch (e: any) {
+      setTestResult(`❌ 连通失败：${e.message || '网络连接受阻'}`)
+      showToast('连接测试失败')
+    } finally {
+      setTestingId(null)
     }
-  }, [settings])
+  }
 
-  if (!settings || !configDraft) return null
-
-  const startEdit = (id: string) => {
-    const p = settings.presets.find((x) => x.id === id)
-    if (!p) return
-    setForm({
-      id: p.id,
-      name: p.name,
-      protocol: p.protocol,
-      baseUrl: p.baseUrl,
-      apiKey: '', // 留空 = 不修改已存密钥
-      rememberKey: !p.apiKeySessionOnly,
-      model: p.model,
-      contextLength: p.contextLength,
-      temperature: p.temperature,
-      maxOutputTokens: p.maxOutputTokens
+  const handleOpenAdd = () => {
+    setEditingPreset({
+      name: '',
+      protocol: 'openai-compatible',
+      baseUrl: 'https://api.openai.com/v1',
+      apiKey: '',
+      rememberKey: true,
+      model: 'gpt-4o-mini',
+      contextLength: 128000,
+      temperature: 0.7,
+      maxOutputTokens: 4096
     })
+    setTestResult(null)
   }
 
-  const submitForm = () => {
-    if (!form) return
-    if (!form.name.trim() || (form.protocol !== 'local-demo' && (!form.baseUrl.trim() || !form.model.trim()))) {
-      showToast('名称、base_url、模型名不能为空')
+  const handleSavePreset = (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!editingPreset || !editingPreset.name.trim()) {
+      showToast('请输入模型配置名称')
       return
     }
-    const input: PresetInput = { ...form, apiKey: form.apiKey?.trim() ? form.apiKey.trim() : null }
-    savePreset(input)
-    showToast('预设已保存（Key 保存在本机设备）')
-    setForm(null)
+    savePreset(editingPreset)
+    setEditingPreset(null)
+    showToast('模型配置已存卷')
   }
 
-  const testConnection = async (id: string) => {
-    const creds = getCredentials(id)
-    if (!creds) {
-      setResults((r) => ({ ...r, [id]: { ok: false, error: '预设不存在' } }))
+  const handleAddBannedWord = () => {
+    const word = newBannedWord.trim()
+    if (!word) return
+    if (bannedWords.includes(word)) {
+      showToast('该词汇已存在于词库中')
       return
     }
-    setTesting(id)
-    setResults((r) => ({ ...r, [id]: { ok: false, error: '测试中…' } }))
-    const result = await llm.testConnection(creds)
-    setResults((r) => ({ ...r, [id]: result }))
-    setTesting('')
+    const updated = [...bannedWords, word]
+    setAppConfig({ bannedWords: updated })
+    setNewBannedWord('')
+    showToast(`已将「${word}」纳入洗练词库`)
   }
 
-  const remove = (id: string, name: string) => {
-    if (!window.confirm(`确定删除预设「${name}」？`)) return
-    deletePreset(id)
-    showToast('已删除')
+  const handleRemoveBannedWord = (word: string) => {
+    const updated = bannedWords.filter((w) => w !== word)
+    setAppConfig({ bannedWords: updated })
+    showToast(`已从词库中移除「${word}」`)
   }
-
-  const field = (label: string, node: React.ReactNode, hint?: string) => (
-    <label className="block text-sm">
-      <span className="mb-1 block text-slate-600">{label}</span>
-      {node}
-      {hint && <span className="mt-1 block text-xs text-slate-400">{hint}</span>}
-    </label>
-  )
-
-  const inputCls =
-    'w-full rounded border border-slate-300 px-2 py-2 text-sm focus:border-slate-500 focus:outline-none'
 
   return (
-    <div className="h-full overflow-y-auto">
-      <div className="mx-auto max-w-2xl px-4 py-4">
-        <div className="mb-5 flex items-center justify-between">
-          <h1 className="text-xl font-bold">设置</h1>
-          <button onClick={onBack} className="rounded border border-slate-300 px-3 py-1.5 text-sm active:bg-slate-100">
-            返回
-          </button>
+    <div className="h-full flex flex-col bg-[var(--parchment-bg)] select-none">
+      {/* 顶栏 */}
+      <div className="shrink-0 px-4 py-3 border-b border-[var(--parchment-border)] bg-[var(--parchment-card)] flex items-center justify-between shadow-xs">
+        <div className="flex items-center gap-2">
+          <span className="seal-badge px-2 py-0.5 text-xs">天工</span>
+          <h2 className="ink-title text-base font-bold text-[var(--ink-primary)]">
+            天工墨引 · 枢机配置
+          </h2>
         </div>
+      </div>
 
-        {/* 模型预设 */}
-        <section className="mb-6 rounded-lg border border-slate-200 bg-white p-4">
-          <div className="mb-3 flex items-center justify-between">
-            <h2 className="font-semibold">模型预设</h2>
+      <div className="flex-1 overflow-y-auto p-4 parchment-scroll space-y-5 pb-24">
+        {/* 1. 外观与文韵设定 */}
+        <section className="parchment-box rounded-xl p-4 border border-[var(--parchment-border)] space-y-3">
+          <div className="flex items-center gap-2 border-b border-[var(--parchment-border)] pb-2">
+            <span className="seal-badge text-[10px] px-1.5 py-0.2">风韵</span>
+            <h3 className="ink-title font-bold text-sm text-[var(--ink-primary)]">
+              古典墨韵与阅读排版
+            </h3>
+          </div>
+
+          <div className="flex items-center justify-between py-1">
+            <div>
+              <div className="text-xs font-semibold text-[var(--ink-primary)]">卷轴底色主题</div>
+              <div className="text-[11px] text-[var(--ink-muted)]">
+                {config.theme === 'parchment' ? '澄心羊皮卷（古雅暖宣）' : '玄砚洒金夜（老坑深墨）'}
+              </div>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <button
+                onClick={() => setAppConfig({ theme: 'parchment' })}
+                className={`px-2.5 py-1 rounded text-xs border ${
+                  config.theme === 'parchment'
+                    ? 'parchment-btn-primary font-bold'
+                    : 'parchment-btn text-[var(--ink-secondary)]'
+                }`}
+              >
+                澄心卷
+              </button>
+              <button
+                onClick={() => setAppConfig({ theme: 'dark' })}
+                className={`px-2.5 py-1 rounded text-xs border ${
+                  config.theme === 'dark'
+                    ? 'parchment-btn-primary font-bold'
+                    : 'parchment-btn text-[var(--ink-secondary)]'
+                }`}
+              >
+                玄砚夜
+              </button>
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between py-1 border-t border-[var(--parchment-border)]/50 pt-2">
+            <div>
+              <div className="text-xs font-semibold text-[var(--ink-primary)]">定稿后自动题签</div>
+              <div className="text-[11px] text-[var(--ink-muted)]">正文生成完毕后自动弹出8个候选书名</div>
+            </div>
+            <input
+              type="checkbox"
+              checked={config.autoShowTitleSheet}
+              onChange={(e) => setAppConfig({ autoShowTitleSheet: e.target.checked })}
+              className="w-4 h-4 accent-[var(--seal-vermilion)] cursor-pointer"
+            />
+          </div>
+        </section>
+
+        {/* 2. 模型库管理 */}
+        <section className="parchment-box rounded-xl p-4 border border-[var(--parchment-border)] space-y-3">
+          <div className="flex items-center justify-between border-b border-[var(--parchment-border)] pb-2">
+            <div className="flex items-center gap-2">
+              <span className="seal-badge text-[10px] px-1.5 py-0.2">文曲</span>
+              <h3 className="ink-title font-bold text-sm text-[var(--ink-primary)]">
+                大语言模型预设
+              </h3>
+            </div>
             <button
-              onClick={() => setForm(emptyForm())}
-              className="rounded bg-blue-600 px-3 py-1.5 text-sm text-white active:bg-blue-500"
+              onClick={handleOpenAdd}
+              className="parchment-btn-primary px-2.5 py-1 rounded text-xs font-bold flex items-center gap-1 shadow-xs"
             >
-              + 新建预设
+              <span>+</span>
+              <span>新增模型</span>
             </button>
           </div>
 
-          <div className="flex flex-col gap-2">
-            {settings.presets.map((p) => {
-              const r = results[p.id]
-              const isDemo = p.id === DEMO_PRESET_ID
-              return (
-                <div key={p.id} className="rounded border border-slate-200 p-3">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <div className="min-w-0">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="font-medium">{p.name}</span>
-                        <span className="rounded bg-slate-100 px-1.5 py-0.5 text-xs text-slate-600">
-                          {PROTOCOL_LABELS[p.protocol]}
-                        </span>
-                        {p.apiKeySessionOnly && (
-                          <span className="rounded bg-amber-100 px-1.5 py-0.5 text-xs text-amber-700">
-                            Key 仅本次会话有效
-                          </span>
-                        )}
-                      </div>
-                      <div className="mt-1 truncate text-xs text-slate-500">
-                        {isDemo
-                          ? '内置离线演示：不出网即可体验完整流式写作'
-                          : `${p.baseUrl || '（未设置 base_url）'} · 模型 ${p.model} · 密钥 ${p.apiKeyHint || '（未设置）'}`}
-                      </div>
-                    </div>
-                    <div className="flex shrink-0 gap-2">
-                      <button
-                        onClick={() => void testConnection(p.id)}
-                        disabled={testing === p.id}
-                        className="rounded border border-slate-300 px-2.5 py-1.5 text-xs active:bg-slate-100 disabled:opacity-50"
-                      >
-                        {testing === p.id ? '测试中…' : '测试连接'}
-                      </button>
-                      {!isDemo && (
-                        <>
-                          <button
-                            onClick={() => startEdit(p.id)}
-                            className="rounded border border-slate-300 px-2.5 py-1.5 text-xs active:bg-slate-100"
-                          >
-                            编辑
-                          </button>
-                          <button
-                            onClick={() => remove(p.id, p.name)}
-                            className="rounded border border-red-200 px-2.5 py-1.5 text-xs text-red-600 active:bg-red-50"
-                          >
-                            删除
-                          </button>
-                        </>
-                      )}
-                    </div>
+          <p className="text-[11px] text-[var(--ink-muted)] leading-relaxed">
+            {SECURITY_NOTE}
+          </p>
+
+          {/* 预设列表 */}
+          <div className="space-y-2 pt-1">
+            {presets.map((p) => (
+              <div
+                key={p.id}
+                className="p-3 rounded-lg border border-[var(--parchment-border)] bg-[var(--parchment-bg)] flex items-center justify-between"
+              >
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <span className="ink-title font-bold text-xs text-[var(--ink-primary)] truncate">
+                      {p.name}
+                    </span>
+                    <span className="seal-badge-outline text-[9px] px-1 py-0.1">
+                      {p.model}
+                    </span>
                   </div>
-                  {r && (
-                    <div className={`mt-2 text-xs ${r.ok ? 'text-green-700' : 'text-red-600'}`}>
-                      {r.ok ? `连接成功，延迟 ${r.latencyMs}ms（模型 ${r.model}）` : `连接失败：${r.error}`}
-                    </div>
+                  <div className="text-[10px] text-[var(--ink-muted)] mt-0.5 truncate">
+                    {p.protocol === 'local-demo'
+                      ? '离线天工模拟（无需网络与密钥）'
+                      : p.baseUrl || '官方默认端点'}
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 shrink-0 pl-2">
+                  <button
+                    onClick={() => handleTestConnection(p.id)}
+                    disabled={testingId === p.id}
+                    className="text-[11px] text-[var(--gold-accent)] font-semibold px-2 py-1 rounded border border-[var(--gold-accent)]/30 hover:bg-[var(--gold-glow)]"
+                  >
+                    {testingId === p.id ? '测验中...' : '测试'}
+                  </button>
+                  {p.protocol !== 'local-demo' && (
+                    <button
+                      onClick={() => {
+                        if (window.confirm(`确认删除模型预设「${p.name}」？`)) {
+                          deletePreset(p.id)
+                          showToast('已删除模型预设')
+                        }
+                      }}
+                      className="text-[11px] text-[var(--seal-vermilion)] p-1 hover:opacity-80"
+                    >
+                      删除
+                    </button>
                   )}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {testResult && (
+            <div className="p-2.5 rounded-lg bg-[var(--parchment-card)] border border-[var(--parchment-border)] text-xs text-[var(--ink-secondary)] leading-relaxed animate-fade-in">
+              {testResult}
+            </div>
+          )}
+        </section>
+
+        {/* 3. 各阶段模型指派 */}
+        <section className="parchment-box rounded-xl p-4 border border-[var(--parchment-border)] space-y-3">
+          <div className="flex items-center gap-2 border-b border-[var(--parchment-border)] pb-2">
+            <span className="seal-badge text-[10px] px-1.5 py-0.2">司职</span>
+            <h3 className="ink-title font-bold text-sm text-[var(--ink-primary)]">
+              七大阶段模型分工指派
+            </h3>
+          </div>
+          <p className="text-[11px] text-[var(--ink-muted)]">
+            可为正文创作指定长文本能力强的模型，为错别字与去AI味指定高速经济模型。
+          </p>
+
+          <div className="space-y-2 pt-1">
+            {Object.entries(STAGE_LABELS).map(([stKey, label]) => {
+              const currentModelId = stageModels[stKey] || 'builtin-demo'
+              return (
+                <div key={stKey} className="flex items-center justify-between py-1.5 border-b border-[var(--parchment-border)]/40 text-xs">
+                  <span className="text-[var(--ink-secondary)] font-medium">{label}</span>
+                  <select
+                    value={currentModelId}
+                    onChange={(e) => {
+                      const updated = { ...stageModels, [stKey]: e.target.value }
+                      setStageModels(updated)
+                      showToast(`已更新「${label}」所指派模型`)
+                    }}
+                    className="h-8 px-2 rounded border border-[var(--parchment-border)] bg-[var(--parchment-card)] text-[var(--ink-primary)] text-xs outline-none focus:border-[var(--gold-accent)]"
+                  >
+                    {presets.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.name}
+                      </option>
+                    ))}
+                  </select>
                 </div>
               )
             })}
           </div>
         </section>
 
-        {/* 新建/编辑表单 */}
-        {form && (
-          <Sheet open onClose={() => setForm(null)} title={form.id ? '编辑预设' : '新建预设'}>
-            <div className="flex flex-col gap-3">
-              {field('名称', (
-                <input className={inputCls} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="例如：DeepSeek / 本地 Ollama" />
-              ))}
-              {field('协议', (
-                <select className={inputCls} value={form.protocol} onChange={(e) => setForm({ ...form, protocol: e.target.value as Protocol })}>
-                  <option value="openai-compatible">openai-compatible</option>
-                  <option value="anthropic">anthropic</option>
-                </select>
-              ))}
-              {field('base_url', (
-                <input className={inputCls} value={form.baseUrl} onChange={(e) => setForm({ ...form, baseUrl: e.target.value })} placeholder="例如 https://api.deepseek.com/v1" />
-              ), 'OpenAI 兼容地址通常以 /v1 结尾；本地模型（Ollama/LM Studio）同样适用')}
-              {field('API Key', (
-                <input type="password" className={inputCls} value={form.apiKey ?? ''} onChange={(e) => setForm({ ...form, apiKey: e.target.value })} placeholder={form.id ? '留空则不修改已存密钥' : '仅保存在本机设备'} />
-              ))}
-              <label className="flex items-center gap-2 text-sm text-slate-600">
-                <input
-                  type="checkbox"
-                  checked={form.rememberKey ?? true}
-                  onChange={(e) => setForm({ ...form, rememberKey: e.target.checked })}
-                />
-                记住密钥（保存在本机；不勾选则仅本次会话有效）
-              </label>
-              {field('模型名', (
-                <input className={inputCls} value={form.model} onChange={(e) => setForm({ ...form, model: e.target.value })} placeholder="例如 deepseek-chat / gpt-4o-mini" />
-              ))}
-              {field('上下文长度（token）', (
-                <input type="number" min={1024} className={inputCls} value={form.contextLength} onChange={(e) => setForm({ ...form, contextLength: Number(e.target.value) || 0 })} />
-              ))}
-              {field('默认温度', (
-                <input type="number" step={0.1} min={0} max={2} className={inputCls} value={form.temperature} onChange={(e) => setForm({ ...form, temperature: Number(e.target.value) })} />
-              ))}
-              {field('最大输出（token）', (
-                <input type="number" min={16} className={inputCls} value={form.maxOutputTokens} onChange={(e) => setForm({ ...form, maxOutputTokens: Number(e.target.value) || 0 })} />
-              ))}
-              <div className="mt-1 flex gap-2">
-                <button onClick={submitForm} className="flex-1 rounded bg-blue-600 px-4 py-2.5 text-sm text-white active:bg-blue-500">
-                  保存
-                </button>
-                <button onClick={() => setForm(null)} className="rounded border border-slate-300 px-4 py-2.5 text-sm active:bg-slate-100">
-                  取消
-                </button>
-              </div>
-            </div>
-          </Sheet>
-        )}
+        {/* 4. 去 AI 味词库维护 */}
+        <section className="parchment-box rounded-xl p-4 border border-[var(--parchment-border)] space-y-3">
+          <div className="flex items-center gap-2 border-b border-[var(--parchment-border)] pb-2">
+            <span className="seal-badge text-[10px] px-1.5 py-0.2">洗墨</span>
+            <h3 className="ink-title font-bold text-sm text-[var(--ink-primary)]">
+              去 AI 味套话词库管理
+            </h3>
+          </div>
+          <p className="text-[11px] text-[var(--ink-muted)]">
+            工作流执行至「洗练铅华」阶段时，将针对以下套话句式执行严苛筛除与重构：
+          </p>
 
-        {/* 模型角色映射 */}
-        <section className="mb-6 rounded-lg border border-slate-200 bg-white p-4">
-          <h2 className="mb-3 font-semibold">模型角色映射</h2>
-          <p className="mb-3 text-xs text-slate-500">为不同任务指定不同模型；试写默认使用「写作模型」。</p>
-          <div className="flex flex-col gap-3">
-            {MODEL_ROLES.map((role) => (
-              <label key={role} className="text-sm">
-                <span className="mb-1 block text-slate-600">{MODEL_ROLE_LABELS[role]}</span>
-                <select
-                  className={inputCls}
-                  value={rolesDraft[role] ?? ''}
-                  onChange={(e) => setRolesDraft({ ...rolesDraft, [role]: e.target.value || undefined })}
+          {/* 添加新词 */}
+          <div className="flex items-center gap-2 pt-1">
+            <input
+              type="text"
+              placeholder="添加需要扫除的陈词套话..."
+              value={newBannedWord}
+              onChange={(e) => setNewBannedWord(e.target.value)}
+              className="flex-1 h-9 px-3 rounded-lg border border-[var(--parchment-border)] bg-[var(--parchment-card)] text-xs text-[var(--ink-primary)] outline-none focus:border-[var(--gold-accent)]"
+            />
+            <button
+              onClick={handleAddBannedWord}
+              className="parchment-btn-primary px-3 h-9 rounded-lg text-xs font-bold"
+            >
+              录入
+            </button>
+          </div>
+
+          {/* 词汇标签云 */}
+          <div className="flex flex-wrap gap-1.5 pt-2 max-h-40 overflow-y-auto">
+            {bannedWords.map((w) => (
+              <span
+                key={w}
+                className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-[var(--parchment-bg)] border border-[var(--parchment-border)] text-xs text-[var(--ink-primary)] font-serif"
+              >
+                <span>{w}</span>
+                <button
+                  onClick={() => handleRemoveBannedWord(w)}
+                  className="text-[var(--ink-muted)] hover:text-[var(--seal-vermilion)] ml-0.5 text-xs font-bold"
                 >
-                  <option value="">（未指定）</option>
-                  {settings.presets.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.name}（{p.model}）
-                    </option>
-                  ))}
-                </select>
-              </label>
+                  ×
+                </button>
+              </span>
             ))}
           </div>
-          <button
-            onClick={() => {
-              setRoles(rolesDraft)
-              showToast('角色映射已保存')
-            }}
-            className="mt-3 w-full rounded bg-slate-800 px-4 py-2.5 text-sm text-white active:bg-slate-700"
-          >
-            保存角色映射
-          </button>
-        </section>
-
-        {/* 性能 */}
-        <section className="mb-6 rounded-lg border border-slate-200 bg-white p-4">
-          <h2 className="mb-3 font-semibold">性能</h2>
-          <div className="flex flex-col gap-3">
-            {field('并发 LLM 请求数', (
-              <input type="number" min={1} max={8} className={inputCls} value={configDraft.concurrencyLimit} onChange={(e) => setConfigDraft({ ...configDraft, concurrencyLimit: Number(e.target.value) || 1 })} />
-            ), '默认 2')}
-            {field('流式刷新节流（毫秒）', (
-              <input type="number" min={20} max={500} step={10} className={inputCls} value={configDraft.streamThrottleMs} onChange={(e) => setConfigDraft({ ...configDraft, streamThrottleMs: Number(e.target.value) || 80 })} />
-            ), '默认 80（约 50–100ms）')}
-            {field('自动保存间隔（毫秒）', (
-              <input type="number" min={2000} max={10000} step={500} className={inputCls} value={configDraft.autoSaveMs} onChange={(e) => setConfigDraft({ ...configDraft, autoSaveMs: Number(e.target.value) || 3500 })} />
-            ), '默认 3500（3–5 秒）')}
-          </div>
-          <button
-            onClick={() => {
-              setAppConfig(configDraft)
-              showToast('性能配置已保存')
-            }}
-            className="mt-3 w-full rounded bg-slate-800 px-4 py-2.5 text-sm text-white active:bg-slate-700"
-          >
-            保存性能配置
-          </button>
-        </section>
-
-        {/* 安全与数据 */}
-        <section className="mb-10 rounded-lg border border-slate-200 bg-white p-4">
-          <h2 className="mb-3 font-semibold">安全与数据</h2>
-          <p className="text-xs leading-relaxed text-slate-500">{SECURITY_NOTE}</p>
-          <button
-            onClick={() => {
-              if (!window.confirm('确定清空本机全部 NovelFlow 数据（项目、预设、设置）？此操作不可恢复，建议先导出备份。')) return
-              wipeAllData()
-              showToast('已清空，即将重启界面')
-              setTimeout(() => window.location.reload(), 800)
-            }}
-            className="mt-3 w-full rounded border border-red-300 px-4 py-2.5 text-sm text-red-600 active:bg-red-50"
-          >
-            清空本机全部数据
-          </button>
         </section>
       </div>
+
+      {/* 预设编辑浮层 */}
+      {editingPreset && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4">
+          <div className="parchment-box w-full max-w-md rounded-2xl border-2 border-[var(--gold-accent)] p-5 shadow-2xl safe-bottom max-h-[90vh] overflow-y-auto">
+            <h3 className="ink-title text-base font-bold text-[var(--ink-primary)] mb-3 pb-2 border-b border-[var(--parchment-border)]">
+              {editingPreset.id ? '编辑模型预设' : '添加 OpenAI 兼容模型'}
+            </h3>
+
+            <form onSubmit={handleSavePreset} className="space-y-3 text-xs">
+              <div>
+                <label className="block text-[var(--ink-secondary)] mb-1">配置名称</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="例如：通义千问 / DeepSeek / 本地Ollama"
+                  value={editingPreset.name}
+                  onChange={(e) => setEditingPreset({ ...editingPreset, name: e.target.value })}
+                  className="w-full h-10 px-3 rounded-lg border border-[var(--parchment-border)] bg-[var(--parchment-bg)] text-[var(--ink-primary)]"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[var(--ink-secondary)] mb-1">协议类型</label>
+                <select
+                  value={editingPreset.protocol}
+                  onChange={(e) =>
+                    setEditingPreset({ ...editingPreset, protocol: e.target.value as Protocol })
+                  }
+                  className="w-full h-10 px-2 rounded-lg border border-[var(--parchment-border)] bg-[var(--parchment-bg)] text-[var(--ink-primary)]"
+                >
+                  <option value="openai-compatible">OpenAI 兼容（通义/DeepSeek/SiliconFlow等）</option>
+                  <option value="anthropic">Anthropic Claude</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-[var(--ink-secondary)] mb-1">API 基础端点 (Base URL)</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="https://api.openai.com/v1"
+                  value={editingPreset.baseUrl}
+                  onChange={(e) => setEditingPreset({ ...editingPreset, baseUrl: e.target.value })}
+                  className="w-full h-10 px-3 rounded-lg border border-[var(--parchment-border)] bg-[var(--parchment-bg)] text-[var(--ink-primary)]"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[var(--ink-secondary)] mb-1">API 密钥 (API Key)</label>
+                <input
+                  type="password"
+                  placeholder="sk-..."
+                  value={editingPreset.apiKey || ''}
+                  onChange={(e) => setEditingPreset({ ...editingPreset, apiKey: e.target.value })}
+                  className="w-full h-10 px-3 rounded-lg border border-[var(--parchment-border)] bg-[var(--parchment-bg)] text-[var(--ink-primary)]"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[var(--ink-secondary)] mb-1">模型名称 (Model)</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="deepseek-chat / gpt-4o / qwen-max"
+                  value={editingPreset.model}
+                  onChange={(e) => setEditingPreset({ ...editingPreset, model: e.target.value })}
+                  className="w-full h-10 px-3 rounded-lg border border-[var(--parchment-border)] bg-[var(--parchment-bg)] text-[var(--ink-primary)]"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-2 pt-1">
+                <div>
+                  <label className="block text-[var(--ink-secondary)] mb-1">温度 (Temperature)</label>
+                  <input
+                    type="number"
+                    step="0.05"
+                    min="0"
+                    max="2"
+                    value={editingPreset.temperature}
+                    onChange={(e) =>
+                      setEditingPreset({
+                        ...editingPreset,
+                        temperature: parseFloat(e.target.value) || 0.7
+                      })
+                    }
+                    className="w-full h-9 px-2 rounded-lg border border-[var(--parchment-border)] bg-[var(--parchment-bg)] text-[var(--ink-primary)]"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[var(--ink-secondary)] mb-1">最大输出 Token</label>
+                  <input
+                    type="number"
+                    step="256"
+                    min="512"
+                    value={editingPreset.maxOutputTokens}
+                    onChange={(e) =>
+                      setEditingPreset({
+                        ...editingPreset,
+                        maxOutputTokens: parseInt(e.target.value, 10) || 4096
+                      })
+                    }
+                    className="w-full h-9 px-2 rounded-lg border border-[var(--parchment-border)] bg-[var(--parchment-bg)] text-[var(--ink-primary)]"
+                  />
+                </div>
+              </div>
+
+              <div className="pt-4 flex items-center justify-end gap-2 border-t border-[var(--parchment-border)] mt-4">
+                <button
+                  type="button"
+                  onClick={() => setEditingPreset(null)}
+                  className="h-10 px-4 rounded-xl parchment-btn text-[var(--ink-secondary)]"
+                >
+                  取消
+                </button>
+                <button
+                  type="submit"
+                  className="h-10 px-5 rounded-xl parchment-btn-primary font-bold shadow-md"
+                >
+                  保存预设
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

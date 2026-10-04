@@ -1,28 +1,20 @@
 import { useEffect, type ReactElement } from 'react'
 import { useProjectStore } from './stores/project'
 import { useSettingsStore } from './stores/settings'
-import { useUiStore, type WorkTab } from './stores/ui'
-import { ProjectPane } from './components/ProjectPane'
+import { useUiStore, type MainTab } from './stores/ui'
 import { EditorPane } from './components/EditorPane'
-import { TrialPane } from './components/TrialPane'
+import { BookshelfPane } from './components/BookshelfPane'
 import { SettingsPage } from './components/SettingsPage'
-import { Welcome } from './components/Welcome'
+import { WizardBottomSheet } from './components/WizardBottomSheet'
+import { TitleSheet } from './components/TitleSheet'
 import { ToastContainer } from './components/common/Toast'
 import { ErrorBoundary } from './components/common/ErrorBoundary'
 
-const TAB_ITEMS: Array<{ key: WorkTab; label: string; icon: ReactElement }> = [
-  {
-    key: 'project',
-    label: '项目',
-    icon: (
-      <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z" />
-      </svg>
-    )
-  },
+const NAV_TABS: Array<{ key: MainTab; label: string; seal: string; icon: ReactElement }> = [
   {
     key: 'editor',
     label: '写作',
+    seal: '写',
     icon: (
       <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
         <path d="M12 20h9" />
@@ -31,41 +23,55 @@ const TAB_ITEMS: Array<{ key: WorkTab; label: string; icon: ReactElement }> = [
     )
   },
   {
-    key: 'trial',
-    label: '试写',
+    key: 'bookshelf',
+    label: '书架',
+    seal: '阁',
     icon: (
       <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M12 3v3m0 12v3M3 12h3m12 0h3M5.6 5.6l2.1 2.1m8.6 8.6l2.1 2.1m0-12.8l-2.1 2.1M7.7 16.3l-2.1 2.1" />
+        <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
+        <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
+        <path d="M9 7h6M9 11h4" />
+      </svg>
+    )
+  },
+  {
+    key: 'settings',
+    label: '设置',
+    seal: '工',
+    icon: (
+      <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
         <circle cx="12" cy="12" r="3" />
+        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
       </svg>
     )
   }
 ]
 
-function BottomNav() {
+function AncientBottomNav() {
   const tab = useUiStore((s) => s.tab)
   const setTab = useUiStore((s) => s.setTab)
-  const project = useProjectStore((s) => s.project)
+
   return (
-    <nav className="safe-bottom flex shrink-0 border-t border-slate-200 bg-white">
-      {TAB_ITEMS.map((item) => {
+    <nav className="safe-bottom flex shrink-0 border-t border-[var(--parchment-border)] bg-[var(--parchment-card)] shadow-lg">
+      {NAV_TABS.map((item) => {
         const active = tab === item.key
         return (
           <button
             key={item.key}
-            onClick={() => {
-              if (!project && item.key !== 'project') {
-                useUiStore.getState().showToast('请先创建或打开项目')
-                return
-              }
-              setTab(item.key)
-            }}
-            className={`flex flex-1 flex-col items-center gap-0.5 py-2 ${
-              active ? 'text-blue-600' : 'text-slate-500'
+            onClick={() => setTab(item.key)}
+            className={`flex flex-1 flex-col items-center justify-center py-2 min-h-[52px] transition-all relative ${
+              active ? 'text-[var(--seal-vermilion)]' : 'text-[var(--ink-muted)] hover:text-[var(--ink-secondary)]'
             }`}
           >
-            {item.icon}
-            <span className={`text-xs ${active ? 'font-semibold' : ''}`}>{item.label}</span>
+            {active && (
+              <span className="absolute top-0 w-8 h-[2px] bg-[var(--seal-vermilion)] rounded-full" />
+            )}
+            <div className="relative">
+              {item.icon}
+            </div>
+            <span className={`text-[11px] mt-0.5 tracking-wider ${active ? 'font-bold ink-title' : 'font-normal'}`}>
+              {item.label}
+            </span>
           </button>
         )
       })}
@@ -74,53 +80,66 @@ function BottomNav() {
 }
 
 export default function App() {
-  const project = useProjectStore((s) => s.project)
-  const init = useProjectStore((s) => s.init)
+  const initProject = useProjectStore((s) => s.init)
   const loadSettings = useSettingsStore((s) => s.load)
+  const settings = useSettingsStore((s) => s.settings)
   const tab = useUiStore((s) => s.tab)
-  const settingsOpen = useUiStore((s) => s.settingsOpen)
-  const setSettingsOpen = useUiStore((s) => s.setSettingsOpen)
 
   useEffect(() => {
-    init()
+    initProject()
     loadSettings()
-  }, [init, loadSettings])
+  }, [initProject, loadSettings])
+
+  // 动态同步古风日夜主题
+  useEffect(() => {
+    if (settings?.config?.theme === 'dark') {
+      document.documentElement.classList.add('theme-dark')
+    } else {
+      document.documentElement.classList.remove('theme-dark')
+    }
+  }, [settings?.config?.theme])
 
   return (
     <ErrorBoundary>
-      <div className="flex h-full flex-col">
-        {/* 顶栏（与桌面版同一视觉语言：白底、细分隔线、蓝色主操作） */}
-        <header className="safe-top flex shrink-0 items-center justify-between border-b border-slate-200 bg-white px-4 py-2">
-          <div className="flex min-w-0 items-center gap-3">
-            <span className="font-bold text-slate-800">NovelFlow</span>
-            <span className="max-w-[50vw] truncate text-sm text-slate-500">
-              {project ? project.name : '未打开项目'}
+      <div className="flex h-full flex-col overflow-hidden bg-[var(--parchment-bg)] select-none">
+        {/* 古墨雅韵顶栏 */}
+        <header className="safe-top shrink-0 flex items-center justify-between border-b border-[var(--parchment-border)] bg-[var(--parchment-card)] px-4 py-2 shadow-xs">
+          <div className="flex items-center gap-2">
+            <span className="seal-badge w-6 h-6 text-xs font-bold shadow-xs">墨</span>
+            <div className="flex flex-col">
+              <span className="ink-title font-extrabold text-sm tracking-wide text-[var(--ink-primary)]">
+                NovelFlow · 古墨长卷
+              </span>
+              <span className="text-[9px] text-[var(--ink-muted)] tracking-wider">
+                小说工作流流水线 · 手机端
+              </span>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <span className="seal-badge-outline text-[10px] px-1.5 py-0.5 font-serif">
+              {tab === 'editor' ? '卷房' : tab === 'bookshelf' ? '书阁' : '天工'}
             </span>
           </div>
-          <button
-            onClick={() => setSettingsOpen(!settingsOpen)}
-            className="rounded border border-slate-300 px-3 py-1 text-sm active:bg-slate-100"
-          >
-            {settingsOpen ? '返回编辑器' : '设置'}
-          </button>
         </header>
 
-        {/* 主体 */}
-        <main className="min-h-0 flex-1 overflow-hidden">
-          {settingsOpen ? (
-            <SettingsPage onBack={() => setSettingsOpen(false)} />
-          ) : !project ? (
-            <Welcome />
-          ) : tab === 'project' ? (
-            <ProjectPane />
-          ) : tab === 'editor' ? (
-            <EditorPane />
-          ) : (
-            <TrialPane />
-          )}
+        {/* 主视窗主体 */}
+        <main className="min-h-0 flex-1 overflow-hidden relative">
+          {tab === 'editor' && <EditorPane />}
+          {tab === 'bookshelf' && <BookshelfPane />}
+          {tab === 'settings' && <SettingsPage />}
         </main>
 
-        {!settingsOpen && <BottomNav />}
+        {/* 底部导航 */}
+        <AncientBottomNav />
+
+        {/* 6 步向导弹窗 */}
+        <WizardBottomSheet />
+
+        {/* 8 候选标题小窗口抽屉 */}
+        <TitleSheet />
+
+        {/* 全局 Toast 提示 */}
         <ToastContainer />
       </div>
     </ErrorBoundary>

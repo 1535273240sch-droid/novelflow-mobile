@@ -38,6 +38,16 @@ function writeStored(st: StoredProject): void {
   lsSet(projectKey(st.info.id), st)
 }
 
+const workflowProjectKey = (id: string) => `novelflow:workflow:${id}`
+
+export function saveWorkflowProject(p: any): void {
+  lsSet(workflowProjectKey(p.id), p)
+}
+
+export function getWorkflowProject(id: string): any | null {
+  return lsGet<any | null>(workflowProjectKey(id), null)
+}
+
 export function listProjects(): ProjectInfo[] {
   return lsGet<ProjectInfo[]>(LS_PROJECTS, []).sort((a, b) =>
     b.createdAt.localeCompare(a.createdAt)
@@ -231,7 +241,7 @@ export function wipeAllData(): void {
   const keys: string[] = []
   for (let i = 0; i < localStorage.length; i++) {
     const k = localStorage.key(i)
-    if (k && k.startsWith('novelflow:')) keys.push(k)
+    if (k && typeof k === 'string' && k.startsWith('novelflow:')) keys.push(k)
   }
   for (const k of keys) localStorage.removeItem(k)
 }
