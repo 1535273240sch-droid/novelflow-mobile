@@ -21,7 +21,7 @@ import {
 } from './types'
 import { BUILTIN_PROMPTS, renderPrompt } from './prompts'
 import { splitIntoChunks, mergeChunks } from './chunker'
-import { cleanFinalNovelText, extractJsonFromResponse } from './cleaner'
+import { cleanFinalNovelText, extractJsonFromResponse, extractArrayFromResponse } from './cleaner'
 import { DEFAULT_DEAI_WORDS, formatBannedWordsPrompt } from './deai-words'
 
 export type StreamCallback = (delta: string, full: string) => void
@@ -189,14 +189,36 @@ export class NovelWorkflowEngine {
       })
     }, '故事框架')
 
-    const framework = extractJsonFromResponse<FrameworkData>(raw, {
-      world_setting: '乾坤广大，风云暗涌。',
-      male_lead: { name: cfg.maleLead || '林沉', personality: '坚韧孤傲', goal: '破开宿命迷局' },
-      female_lead: { name: cfg.femaleLead || '苏晚', personality: '灵慧如玉', goal: '护佑心中所念' },
-      core_conflict: '宿命枷锁与个体意志之争',
-      plot_outline: { qi: '风起微末', cheng: '拨云见日', zhuan: '绝处逢生', he: '终局定鼎' },
-      ending_direction: '荡气回肠，余韵悠长'
-    })
+    const parsedObj = extractJsonFromResponse<any>(raw, null)
+    const rawFw = parsedObj?.framework || parsedObj?.data || parsedObj || {}
+
+    const framework: FrameworkData = {
+      title_suggestion: rawFw.title_suggestion || `${cfg.genre}卷·${cfg.maleLead || '林沉'}记`,
+      world_setting: rawFw.world_setting || '乾坤广大，风云暗涌。',
+      male_lead: {
+        name: rawFw.male_lead?.name || cfg.maleLead || '林沉',
+        identity: rawFw.male_lead?.identity || '主角',
+        personality: rawFw.male_lead?.personality || '坚韧孤傲',
+        goal: rawFw.male_lead?.goal || '破开宿命迷局',
+        flaw: rawFw.male_lead?.flaw || '过刚易折'
+      },
+      female_lead: {
+        name: rawFw.female_lead?.name || cfg.femaleLead || '苏晚',
+        identity: rawFw.female_lead?.identity || '女主',
+        personality: rawFw.female_lead?.personality || '灵慧如玉',
+        goal: rawFw.female_lead?.goal || '护佑心中所念',
+        flaw: rawFw.female_lead?.flaw || '情深不寿'
+      },
+      supporting_characters: Array.isArray(rawFw.supporting_characters) ? rawFw.supporting_characters : [],
+      core_conflict: rawFw.core_conflict || '宿命枷锁与个体意志之争',
+      plot_outline: {
+        qi: rawFw.plot_outline?.qi || '风起微末，主角登场',
+        cheng: rawFw.plot_outline?.cheng || '拨云见日，矛盾升级',
+        zhuan: rawFw.plot_outline?.zhuan || '绝处逢生，重大转折',
+        he: rawFw.plot_outline?.he || '终局定鼎，尘埃落定'
+      },
+      ending_direction: rawFw.ending_direction || '荡气回肠，余韵悠长'
+    }
 
     this.project.framework = framework
     if (framework.title_suggestion && (!this.project.name || this.project.name === '新作品')) {
@@ -232,7 +254,7 @@ export class NovelWorkflowEngine {
       })
     }, '章节计划')
 
-    const items = extractJsonFromResponse<ChapterPlanItem[]>(raw, [
+    const fallbackItems: ChapterPlanItem[] = [
       {
         index: 1,
         title: '第一章 惊澜初起',
@@ -257,12 +279,15 @@ export class NovelWorkflowEngine {
         characters: [cfg.maleLead || '林沉', cfg.femaleLead || '苏晚'],
         hook: '烟波江上，故人回眸'
       }
-    ])
+    ]
 
-    this.project.chapters = items.map((item) => ({
-      index: item.index,
-      title: item.title,
-      plan: `【目标】${item.target}\n【事件】${item.key_events}\n【扣子】${item.hook}`,
+    const extracted = extractArrayFromResponse<ChapterPlanItem>(raw, fallbackItems)
+    const items = Array.isArray(extracted) && extracted.length > 0 ? extracted : fallbackItems
+
+    this.project.chapters = items.map((item, idx) => ({
+      index: typeof item.index === 'number' ? item.index : idx + 1,
+      title: item.title || `第 ${idx + 1} 章`,
+      plan: `【目标】${item.target || '主线推进'}\n【事件】${item.key_events || '核心冲突'}\n【扣子】${item.hook || '悬念待解'}`,
       planMeta: item,
       status: 'pending'
     }))
@@ -462,7 +487,7 @@ export class NovelWorkflowEngine {
       })
     }, '标题生成')
 
-    const list = extractJsonFromResponse<Array<{ title: string; type: string; pitch: string }>>(raw, [
+    const fallbackTitles = [
       { title: '一砚梨花雨', type: '诗意文艺型', pitch: '墨染梨花，情深缘浅' },
       { title: '问剑青云巅', type: '爆点爽意型', pitch: '一剑破万法，快意恩仇' },
       { title: '大乾镇妖录', type: '直白破题型', pitch: '斩妖除魔，步步为营' },
@@ -471,11 +496,14 @@ export class NovelWorkflowEngine {
       { title: '天机不可泄', type: '悬念引人型', pitch: '算尽天机，唯漏一心' },
       { title: '绝品炼气士', type: '爆点爽意型', pitch: '扮猪吃虎，横推八荒' },
       { title: '沉晚辞归路', type: '直白破题型', pitch: '双星辉映，宿命同舟' }
-    ])
+    ]
+
+    const extractedList = extractArrayFromResponse<any>(raw, fallbackTitles)
+    const list = Array.isArray(extractedList) && extractedList.length > 0 ? extractedList : fallbackTitles
 
     const candidates: TitleCandidate[] = list.map((item, idx) => ({
       id: `title-${idx + 1}-${Date.now()}`,
-      title: item.title,
+      title: item.title || `候选书名${idx + 1}`,
       type: item.type || '典雅型',
       pitch: item.pitch || '扣人心弦'
     }))

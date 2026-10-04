@@ -5,6 +5,7 @@
  * - 剥离 Markdown 标题符（#、##）、代码围栏（```、```markdown）
  * - 剥离章节外多余作者碎碎念
  * - 保持正文缩进与纯净文本段落
+ * - 超强容错的 JSON 提取与数组安全解包
  */
 
 export function cleanFinalNovelText(rawText: string): string {
@@ -58,13 +59,15 @@ export function cleanFinalNovelText(rawText: string): string {
   return paragraphs.map((p) => `    ${p.replace(/^[\s　]+/, '')}`).join('\n\n')
 }
 
+/**
+ * 健壮提取 JSON 对象
+ */
 export function extractJsonFromResponse<T = any>(rawText: string, fallback?: T): T {
   if (!rawText) return fallback as T
   try {
-    // 1. 直接解析
     return JSON.parse(rawText.trim())
   } catch {
-    // 2. 匹配代码块中的 json
+    // 匹配代码块中的 json
     const blockMatch = rawText.match(/```(?:json)?\s*([\s\S]*?)\s*```/)
     if (blockMatch && blockMatch[1]) {
       try {
@@ -74,7 +77,7 @@ export function extractJsonFromResponse<T = any>(rawText: string, fallback?: T):
       }
     }
 
-    // 3. 贪婪匹配第一个 { ... } 或 [ ... ]
+    // 匹配 { ... }
     const firstBrace = rawText.indexOf('{')
     const lastBrace = rawText.lastIndexOf('}')
     if (firstBrace !== -1 && lastBrace > firstBrace) {
@@ -85,6 +88,7 @@ export function extractJsonFromResponse<T = any>(rawText: string, fallback?: T):
       }
     }
 
+    // 匹配 [ ... ]
     const firstBracket = rawText.indexOf('[')
     const lastBracket = rawText.lastIndexOf(']')
     if (firstBracket !== -1 && lastBracket > firstBracket) {
@@ -97,4 +101,71 @@ export function extractJsonFromResponse<T = any>(rawText: string, fallback?: T):
 
     return fallback as T
   }
+}
+
+/**
+ * 专为章节计划、标题列表等设计的超强容错数组提取器
+ * 绝对保证返回 Array 实例，彻底杜绝 .map is not a function 异常！
+ */
+export function extractArrayFromResponse<T = any>(rawText: string, fallback: T[] = []): T[] {
+  if (!rawText) return fallback
+
+  let parsed: any = null
+
+  // 1. 优先尝试直接在文本中截取 [ ... ] 数组
+  const firstBracket = rawText.indexOf('[')
+  const lastBracket = rawText.lastIndexOf(']')
+  if (firstBracket !== -1 && lastBracket > firstBracket) {
+    try {
+      const arr = JSON.parse(rawText.substring(firstBracket, lastBracket + 1))
+      if (Array.isArray(arr) && arr.length > 0) {
+        return arr
+      }
+    } catch {
+      // continue
+    }
+  }
+
+  // 2. 尝试常规 JSON 解析
+  parsed = extractJsonFromResponse(rawText, null)
+
+  // 3. 如果直接是数组
+  if (Array.isArray(parsed) && parsed.length > 0) {
+    return parsed
+  }
+
+  // 4. 如果大模型用对象包裹了数组，例如 { "chapters": [...] }, { "plan": [...] }, { "titles": [...] }
+  if (parsed && typeof parsed === 'object') {
+    const candidateKeys = [
+      'chapters',
+      'plan',
+      'items',
+      'titles',
+      'candidates',
+      'data',
+      'list',
+      'sections',
+      'outline'
+    ]
+    for (const key of candidateKeys) {
+      if (Array.isArray(parsed[key]) && parsed[key].length > 0) {
+        return parsed[key]
+      }
+    }
+
+    // 遍历所有键值，看哪个值是数组
+    for (const val of Object.values(parsed)) {
+      if (Array.isArray(val) && val.length > 0) {
+        return val as T[]
+      }
+    }
+
+    // 如果对象是键值对列表形如 { "1": {...}, "2": {...} }
+    const vals = Object.values(parsed)
+    if (vals.length > 0 && vals.every((v) => typeof v === 'object' && v !== null)) {
+      return vals as T[]
+    }
+  }
+
+  return fallback
 }
